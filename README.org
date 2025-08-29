@@ -1,0 +1,69 @@
+# -*- ispell-local-dictionary: "english" -*-
+
+This is a Nth implementation of a [[https://github.com/tmux/tmux][tmux]] session switcher using [[https://github.com/junegunn/fzf][fzf]]
+built for my worflow. *It is minimal and only cares about sessions.*
+
+It is a tiny program that written in rust for speed. Prior tries in
+bash where abysmal.
+
+* Installation
+
+Clone, build with ~cargo build --release~.
+Binary is in ~target/release/rs-tmux-fzf~.
+
+* Usage
+
+Only two actions supported:
+- ~switch-from~: to switch to another session
+  Note: sorted by last used
+- ~move-window~: to send current window to another session
+  Note: you come along and don't loose the window focus
+
+Why having to specify ~CURRENT_SESSION~ name and ~WINDOW_ID~ (for
+move-window only) when we could have called tmux to get them ? Micro
+optimization, that are perceptible: tmux can offer these info faster
+than us going back and forth forking processes to query these info.
+
+** Suggested tmux bindings
+
+#+begin_example
+bind s set-environment -F CURRENT_SESSION "#{client_session}" \; \
+    display-popup -E 'rs-tmux-fzf switch-from "$CURRENT_SESSION"'
+
+bind . set-environment -F CURRENT_SESSION "#{client_session}" \; \
+       set-environment -F WINDOW_ID "#{window_id}" \; \
+       display-popup -E 'rs-tmux-fzf move-window "$CURRENT_SESSION" "$WINDOW_ID"'
+#+end_example
+
+
+* Other similar projects
+
+If you are somewhat interested in the matter, there are probably much
+better alternatives in these following projects:
+
+- [[https://github.com/jrmoulton/tmux-sessionizer][tmux-sessionizer]] will create session around directories, and can
+  switch between them pretty much the same way and efficiently too.
+  It can't move a window between sessions.
+
+- [[https://github.com/Pairadux/Tmux-Sessionizer][Tmux-Sessionizer]] is a highly configurable Tmux Session Manager. It
+  provides an intuitive interface for creating, managing, and
+  switching between tmux sessions with pre-defined layouts and
+  intelligent directory scanning. Written in Go.
+
+- [[https://github.com/sainnhe/tmux-fzf][tmux-fzf]] will introduce fzf for sessions, windows, panes, key
+  bindings and much more. Written in bash.
+
+- [[https://github.com/omerxx/tmux-sessionx][tmux-sessionx]] a fuzzy Tmux session manager with preview
+  capabilities, deleting, renaming and more! In bash.
+
+- [[https://github.com/siadat/session-finder][session-finder]] which is actually the original script that I tested
+  and decided me to do my own take in rust.
+
+- [[https://github.com/tmux-plugins/tmux-sessionist][tmux-sessionist]] which give a lot of handy shortcut to manage
+  sessions better. In bash.
+
+- [[https://github.com/knutwalker/sessionizer][sessionizer]] which selects a new tmux session from a list of running
+  sessions or a selection of projects. Doesn't use ~fzf~ ! written
+  in Rust.
+
+- ...
