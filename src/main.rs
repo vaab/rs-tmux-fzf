@@ -1,6 +1,24 @@
-use std::env;
+use std::{env, fs};
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{PathBuf, Path};
 use std::process::{Command, Stdio};
+
+
+macro_rules! cmd {
+    ($bin:ident) => {
+        pub mod $bin {
+            static CACHE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+            #[inline]
+            pub fn path() -> &'static std::path::Path {
+                CACHE.get_or_init(|| super::depends(stringify!($bin))).as_path()
+            }
+        }
+    };
+}
+
+cmd!(tmux);
+cmd!(fzf);
 
 
 fn die(msg: &str) -> ! {
@@ -8,10 +26,23 @@ fn die(msg: &str) -> ! {
     std::process::exit(1)
 }
 
+pub fn which(cmd: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    for dir in env::split_paths(&path) {
+        let cand = dir.join(cmd);
+        if let Ok(m) = fs::metadata(&cand) {
+            if m.is_file() && (m.permissions().mode() & 0o111 != 0) {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
 pub fn tmux_session_list(current: &str) -> Vec<String> {
     const FMT: &str = "#{?session_attached,0,1} #{?session_last_attached,,0}#{session_last_attached} #{session_name}";
 
-    let s = wrap("tmux", &["list-sessions", "-F", FMT]);
+    let s = wrap(tmux::path(), &["list-sessions", "-F", FMT]);
 
     // Collect (attached_flag, last_attached_ts, name)
     let mut rows: Vec<(u8, u64, String)> = Vec::new();
@@ -38,7 +69,7 @@ fn fzf_pick(prompt: &str, items: &[String]) -> Option<String> {
         return None;
     }
 
-    let mut child = Command::new("fzf")
+    let mut child = Command::new(&fzf::path())
         .args(["--no-multi", "--prompt", prompt])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -67,8 +98,8 @@ fn fzf_pick(prompt: &str, items: &[String]) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn wrap(name: &str, args: &[&str]) -> String {
-    let out = Command::new(name)
+fn wrap(cmd_path: &Path, args: &[&str]) -> String {
+    let out = Command::new(cmd_path)
         .args(args)
         .output()
         .unwrap_or_else(|e| die(&format!("spawn failed: {e}")));
@@ -81,8 +112,26 @@ fn wrap(name: &str, args: &[&str]) -> String {
 
 const USAGE: &str = "usage: rs-tmux-fzf {switch-from|move-window} <current_session> [<current_window>]";
 
+fn depends(name: &str) -> PathBuf {
+    if let Some(name) = which(name) {
+        return name
+    }
+    die(&format!(
+        "{}: `{}` not found in PATH",
+        env!("CARGO_PKG_NAME"),
+        name
+    ));
+}
 
 fn main() {
+
+    // dependencies and path resolution
+
+    tmux::path();
+    fzf::path();
+
+    // argument parsing
+
     let mut args = env::args().skip(1);
     let action = args.next().unwrap_or_else(|| {
         die(USAGE);
@@ -92,11 +141,11 @@ fn main() {
         "switch-from" => {
             let current_session = args.next().unwrap_or_else(|| {
                 die("You must provide the current session name as the second argument");
-                // wrap("tmux", ["display-message", "-p", "#{client_session}"])
+                // wrap(tmux::path(), ["display-message", "-p", "#{client_session}"])
             });
             let list = tmux_session_list(&current_session);
             if let Some(target) = fzf_pick("switch to session> ", &list) {
-                let _ = wrap("tmux", &[
+                let _ = wrap(tmux::path(), &[
                     "switch-client", "-t", &target, ";",
                     "refresh-client", "-S"
                 ]);
@@ -105,16 +154,16 @@ fn main() {
         "move-window" => {
             let current_session = args.next().unwrap_or_else(|| {
                 die("You must provide the current session name as the second argument");
-                // wrap("tmux", ["display-message", "-p", "#{client_session}"])
+                // wrap(tmux::path(), ["display-message", "-p", "#{client_session}"])
             });
             let current_window = args.next().unwrap_or_else(|| {
                 die("You must provide the current window id as the third argument");
-                // wrap("tmux", ["display-message", "-p", "#{window_id}"])
+                // wrap(tmux::path(), ["display-message", "-p", "#{window_id}"])
             });
 
             let list = tmux_session_list(&current_session);
             if let Some(target) = fzf_pick("move window to> ", &list) {
-                let _ = wrap("tmux", &[
+                let _ = wrap(tmux::path(), &[
                     "move-window", "-t", &format!("{target}:"), ";",
                     "switch-client", "-t", &target, ";",
                     "select-window", "-t", &current_window,
