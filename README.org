@@ -41,6 +41,20 @@ bind . set-environment -F CURRENT_SESSION "#{client_session}" \; \
        display-popup -E 'rs-tmux-fzf move-window "$CURRENT_SESSION" "$WINDOW_ID"'
 #+end_example
 
+* Todo list
+
+Just a list of ideas that I might implement in the future. No due dates.
+
+** TODO use ~locate~ to populate with possible directories
+
+And of course a ~fd~ process can complete. This is to enforce a
+session per project. We could filter around ~.git~ existence to get
+blazing fast list.
+
+** TODO use ~zoxide~ to sort more correctly
+
+This would means to populate ~zoxide~ database and to use it for sorting
+entries.
 
 * Other similar projects
 
