@@ -20,6 +20,20 @@ macro_rules! cmd {
 cmd!(tmux);
 cmd!(fzf);
 
+fn tmux_message(msg: &str) {
+    wrap(tmux::path(), &["display-message", "-p", &msg], None);
+}
+
+macro_rules! wrap {
+    // 2 mandatory args, optional 3rd
+    ($cmd:ident, $args:expr $(, $on:expr)? $(,)?) => {
+        $crate::wrap($cmd::path(), $args, wrap!(@opt $($on)?))
+    };
+    (@opt) => { Some(&mut tmux_message) };
+    (@opt $on:expr) => { $on };
+}
+
+
 
 fn die(msg: &str) -> ! {
     eprintln!("{}", msg);
@@ -42,7 +56,7 @@ pub fn which(cmd: &str) -> Option<PathBuf> {
 pub fn tmux_session_list(current: &str) -> Vec<String> {
     const FMT: &str = "#{?session_attached,0,1} #{?session_last_attached,,0}#{session_last_attached} #{session_name}";
 
-    let s = wrap(tmux::path(), &["list-sessions", "-F", FMT]);
+    let s = wrap!(tmux, &["list-sessions", "-F", FMT]);
 
     // Collect (attached_flag, last_attached_ts, name)
     let mut rows: Vec<(u8, u64, String)> = Vec::new();
@@ -98,12 +112,15 @@ fn fzf_pick(prompt: &str, items: &[String]) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn wrap(cmd_path: &Path, args: &[&str]) -> String {
+fn wrap(cmd_path: &Path, args: &[&str], err_display_cb: Option<&mut dyn FnMut(&str)>) -> String {
     let out = Command::new(cmd_path)
         .args(args)
         .output()
         .unwrap_or_else(|e| die(&format!("spawn failed: {e}")));
     if !out.status.success() {
+        if let Some(cb) = err_display_cb {
+            cb(&String::from_utf8_lossy(&out.stderr));
+        }
         die("command failed");
     }
     String::from_utf8_lossy(&out.stdout).to_string()
@@ -141,11 +158,11 @@ fn main() {
         "switch-from" => {
             let current_session = args.next().unwrap_or_else(|| {
                 die("You must provide the current session name as the second argument");
-                // wrap(tmux::path(), ["display-message", "-p", "#{client_session}"])
+                // wrap!(tmux, ["display-message", "-p", "#{client_session}"])
             });
             let list = tmux_session_list(&current_session);
             if let Some(target) = fzf_pick("switch to session> ", &list) {
-                let _ = wrap(tmux::path(), &[
+                let _ = wrap!(tmux, &[
                     "switch-client", "-t", &target, ";",
                     "refresh-client", "-S"
                 ]);
@@ -154,16 +171,16 @@ fn main() {
         "move-window" => {
             let current_session = args.next().unwrap_or_else(|| {
                 die("You must provide the current session name as the second argument");
-                // wrap(tmux::path(), ["display-message", "-p", "#{client_session}"])
+                // wrap!(tmux, ["display-message", "-p", "#{client_session}"])
             });
             let current_window = args.next().unwrap_or_else(|| {
                 die("You must provide the current window id as the third argument");
-                // wrap(tmux::path(), ["display-message", "-p", "#{window_id}"])
+                // wrap!(tmux, ["display-message", "-p", "#{window_id}"])
             });
 
             let list = tmux_session_list(&current_session);
             if let Some(target) = fzf_pick("move window to> ", &list) {
-                let _ = wrap(tmux::path(), &[
+                let _ = wrap!(tmux, &[
                     "move-window", "-t", &format!("{target}:"), ";",
                     "switch-client", "-t", &target, ";",
                     "select-window", "-t", &current_window,
