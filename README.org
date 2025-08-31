@@ -28,6 +28,8 @@ When in ~fzf~, if accepting a string with no matches, or pressing
 Alt-Enter, it'll create a new session on the fly with the current
 text of the query box.
 
+Also, ~Ctrl-k~ will kill session.
+
 ** Suggested tmux bindings
 
 #+begin_example

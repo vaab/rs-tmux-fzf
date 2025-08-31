@@ -20,6 +20,21 @@ macro_rules! cmd {
 cmd!(tmux);
 cmd!(fzf);
 
+pub mod current_exe {
+    static CACHE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+    #[inline]
+    pub fn path() -> &'static std::path::Path {
+        CACHE.get_or_init(|| {
+            std::env::current_exe().unwrap_or_else(|e| {
+                eprintln!("{}: cannot get current exe path: {e}", env!("CARGO_PKG_NAME"));
+                std::process::exit(1)
+            })
+        }).as_path()
+    }
+}
+
+
 fn tmux_message(msg: &str) {
     wrap(tmux::path(), &["display-message", "-p", &msg], None);
 }
@@ -83,15 +98,21 @@ enum Choice {
     New(String)
 }
 
-fn fzf_pick(prompt: &str, items: &[String]) -> Option<Choice> {
-    if items.is_empty() {
-        return None;
-    }
+fn fzf_pick(prompt: &str, current_session: &str) -> Option<Choice> {
+    let items = tmux_session_list(&current_session);
 
     let mut child = Command::new(&fzf::path())
         .args([
             "--no-multi", "--print-query",
             "--bind=alt-enter:print-query",
+            format!(
+                concat!(
+                    "--bind=ctrl-k:",
+                    "execute(tmux kill-session -t {{1}})+",
+                    "reload({} ls-switch-from {})"
+                ),
+                current_exe::path().to_string_lossy(),
+                current_session).as_str(),
             "--prompt", prompt])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -169,13 +190,23 @@ fn main() {
     });
 
     match action.as_str() {
-        "switch-from" => {
+        "ls-switch-from" => {
             let current_session = args.next().unwrap_or_else(|| {
                 die("You must provide the current session name as the second argument");
                 // wrap!(tmux, ["display-message", "-p", "#{client_session}"])
             });
             let list = tmux_session_list(&current_session);
-            if let Some(choice) = fzf_pick("switch to session> ", &list) {
+            // output list to stdout, one per line
+            for item in list {
+                println!("{}", item);
+            }
+        }
+        "switch-from" => {
+            let current_session = args.next().unwrap_or_else(|| {
+                die("You must provide the current session name as the second argument");
+                // wrap!(tmux, ["display-message", "-p", "#{client_session}"])
+            });
+            if let Some(choice) = fzf_pick("switch to session> ", &current_session) {
                 match choice {
                     Choice::FromSelection(target) => {
                         wrap!(tmux, &[
@@ -204,8 +235,7 @@ fn main() {
                 // wrap!(tmux, ["display-message", "-p", "#{window_id}"])
             });
 
-            let list = tmux_session_list(&current_session);
-            if let Some(choice) = fzf_pick("move window to> ", &list) {
+            if let Some(choice) = fzf_pick("move window to> ", &current_session) {
                 match choice {
                     Choice::FromSelection(target) => {
                         wrap!(tmux, &[
