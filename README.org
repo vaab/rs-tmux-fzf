@@ -24,6 +24,10 @@ move-window only) when we could have called tmux to get them ? Micro
 optimization, that are perceptible: tmux can offer these info faster
 than us going back and forth forking processes to query these info.
 
+When in ~fzf~, if accepting a string with no matches, or pressing
+Alt-Enter, it'll create a new session on the fly with the current
+text of the query box.
+
 ** Suggested tmux bindings
 
 #+begin_example

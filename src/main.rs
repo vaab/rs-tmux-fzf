@@ -78,13 +78,21 @@ pub fn tmux_session_list(current: &str) -> Vec<String> {
     rows.into_iter().map(|(_, _, n)| n).collect()
 }
 
-fn fzf_pick(prompt: &str, items: &[String]) -> Option<String> {
+enum Choice {
+    FromSelection(String),
+    New(String)
+}
+
+fn fzf_pick(prompt: &str, items: &[String]) -> Option<Choice> {
     if items.is_empty() {
         return None;
     }
 
     let mut child = Command::new(&fzf::path())
-        .args(["--no-multi", "--prompt", prompt])
+        .args([
+            "--no-multi", "--print-query",
+            "--bind=alt-enter:print-query",
+            "--prompt", prompt])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -102,14 +110,20 @@ fn fzf_pick(prompt: &str, items: &[String]) -> Option<String> {
     }
 
     let out = child.wait_with_output().ok()?;
-    if !out.status.success() {
-        return None;
-    } // Esc / Ctrl-G → none
-    let sel = String::from_utf8_lossy(&out.stdout);
-    sel.lines()
-        .next()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    let output = String::from_utf8_lossy(&out.stdout).to_string();
+    let mut lines = output.lines();
+    let query = lines.next()
+        .unwrap_or_else(|| die(&format!("output is missing first line")));
+    let selected = lines.next();
+    if out.status.success() && selected.is_some() {
+        Some(Choice::FromSelection(selected.unwrap().to_string()))
+    } else {  // no selection was matched
+        if query.is_empty() {
+            tmux_message("canceled");
+            return None;
+        }
+        Some(Choice::New(query.to_string()))
+    }
 }
 
 fn wrap(cmd_path: &Path, args: &[&str], err_display_cb: Option<&mut dyn FnMut(&str)>) -> String {
@@ -161,11 +175,23 @@ fn main() {
                 // wrap!(tmux, ["display-message", "-p", "#{client_session}"])
             });
             let list = tmux_session_list(&current_session);
-            if let Some(target) = fzf_pick("switch to session> ", &list) {
-                let _ = wrap!(tmux, &[
-                    "switch-client", "-t", &target, ";",
-                    "refresh-client", "-S"
-                ]);
+            if let Some(choice) = fzf_pick("switch to session> ", &list) {
+                match choice {
+                    Choice::FromSelection(target) => {
+                        wrap!(tmux, &[
+                            "switch-client", "-t", &target, ";",
+                            "refresh-client", "-S"
+                        ]);
+
+                    }
+                    Choice::New(target) => {
+                        wrap!(tmux, &[
+                            "new-session", "-d", "-s", &target, ";",
+                            "switch-client", "-t", &target, ";",
+                            "refresh-client", "-S"
+                        ]);
+                    }
+                }
             }
         }
         "move-window" => {
@@ -179,12 +205,24 @@ fn main() {
             });
 
             let list = tmux_session_list(&current_session);
-            if let Some(target) = fzf_pick("move window to> ", &list) {
-                let _ = wrap!(tmux, &[
-                    "move-window", "-t", &format!("{target}:"), ";",
-                    "switch-client", "-t", &target, ";",
-                    "select-window", "-t", &current_window,
-                ]);
+            if let Some(choice) = fzf_pick("move window to> ", &list) {
+                match choice {
+                    Choice::FromSelection(target) => {
+                        wrap!(tmux, &[
+                            "move-window", "-t", &format!("{target}:"), ";",
+                            "switch-client", "-t", &target, ";",
+                            "select-window", "-t", &current_window,
+                        ]);
+                    }
+                    Choice::New(target) => {
+                        wrap!(tmux, &[
+                            "new-session", "-d", "-s", &target, ";",
+                            "move-window", "-s", &current_window, "-t", &format!("{target}:"), ";",
+                            "switch-client", "-t", &target, ";",
+                            "kill-window", "-t", &format!("{target}:!"),
+                        ]);
+                    }
+                }
             }
         }
         _ => die(USAGE),
